@@ -89,14 +89,16 @@ class TestCLI:
     def test_configure_interactive(self, runner):
         """Test configure command with interactive input."""
         with patch("webdav_sync.webdav_client.WebDAVClient") as mock_client:
-            mock_client.return_value.test_connection.return_value = True
+            with patch("webdav_sync.cli.WebDAVConfig.save") as mock_save:
+                mock_client.return_value.test_connection.return_value = True
 
-            result = runner.invoke(
-                cli, ["configure"], input="https://test.com\nuser\npass\n"
-            )
+                result = runner.invoke(
+                    cli, ["configure"], input="https://test.com\nuser\npass\n"
+                )
 
-            assert result.exit_code == 0
-            assert "Connection successful" in result.output
+                assert result.exit_code == 0
+                assert "Connection successful" in result.output
+                mock_save.assert_called_once()
 
     def test_configure_connection_failure(self, runner):
         """Test configure command with connection failure."""

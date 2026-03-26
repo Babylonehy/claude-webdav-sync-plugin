@@ -1,9 +1,9 @@
 """WebDAV client wrapper for sync operations."""
 
 import logging
-import os
 from pathlib import Path
-from typing import Optional, List, Dict, Any
+from urllib.parse import urlparse
+from typing import Optional
 from webdav3.client import Client
 from webdav3.exceptions import WebDavException
 
@@ -16,6 +16,8 @@ class WebDAVClient:
     """Wrapper for WebDAV operations."""
 
     REMOTE_BASE_PATH = "/claude-code-sync"
+    REMOTE_ARCHIVE = "/claude-code-sync/claude-sync.tar.gz"
+    REMOTE_MANIFEST = "/claude-code-sync/claude-sync.manifest.json"
 
     def __init__(self, config: WebDAVConfig):
         self.config = config
@@ -29,31 +31,48 @@ class WebDAVClient:
                 "webdav_hostname": self.config.webdav_url,
                 "webdav_login": self.config.username,
                 "webdav_password": self.config.password,
+                # disable_check skips internal HEAD requests that many servers
+                # (including 坚果云/Jianguoyun) return 403 for on subdirectories.
+                "disable_check": True,
             }
             self._client = Client(options)
         return self._client
 
+    @property
+    def _webdav_root(self) -> str:
+        """Extract the WebDAV root path from the configured URL.
+        e.g. 'https://dav.jianguoyun.com/dav/' → '/dav'
+        """
+        return urlparse(self.config.webdav_url).path.rstrip("/")
+
     def test_connection(self) -> bool:
         """Test if connection to WebDAV server works."""
         try:
-            return self.client.check()
-        except WebDavException:
-            return False
-
-    def ensure_remote_dir(self, path: str) -> bool:
-        """Ensure a remote directory exists."""
-        try:
-            if not self.client.check(path):
-                self.client.mkdir(path)
+            self.client.list("/")
             return True
         except WebDavException:
             return False
 
-    def upload_file(self, local_path: Path, remote_path: str) -> bool:
-        """Upload a local file to remote path."""
+    def ensure_remote_base(self) -> bool:
+        """Ensure the /claude-code-sync base directory exists."""
         try:
-            remote_dir = os.path.dirname(remote_path)
-            self.ensure_remote_dir(remote_dir)
+            self.client.list(self.REMOTE_BASE_PATH)
+            return True
+        except WebDavException:
+            pass
+        try:
+            self.client.mkdir(self.REMOTE_BASE_PATH)
+            return True
+        except WebDavException:
+            try:
+                self.client.list(self.REMOTE_BASE_PATH)
+                return True
+            except WebDavException:
+                return False
+
+    def upload_file(self, local_path: Path, remote_path: str) -> bool:
+        """Upload a local file to a remote path."""
+        try:
             self.client.upload_sync(remote_path=remote_path, local_path=str(local_path))
             return True
         except WebDavException as e:
@@ -61,50 +80,22 @@ class WebDAVClient:
             return False
 
     def download_file(self, remote_path: str, local_path: Path) -> bool:
-        """Download a remote file to local path."""
+        """Download a remote file to a local path."""
         try:
             local_path.parent.mkdir(parents=True, exist_ok=True)
-            self.client.download_sync(
-                remote_path=remote_path, local_path=str(local_path)
-            )
+            self.client.download_sync(remote_path=remote_path, local_path=str(local_path))
             return True
         except WebDavException as e:
             logger.error(f"Error downloading {remote_path}: {e}")
             return False
 
-    def list_remote_files(self, path: Optional[str] = None) -> List[Dict[str, Any]]:
-        """List all files in remote directory recursively."""
-        if path is None:
-            path = self.REMOTE_BASE_PATH
+    def remote_file_exists(self, remote_path: str) -> bool:
+        """Check if a remote file exists by attempting to get its info."""
         try:
-            if not self.client.check(path):
-                return []
-            files = self.client.list(path)
-            result = []
-            for f in files:
-                if f.get("isdir", False):
-                    continue
-                result.append(
-                    {
-                        "path": f["path"],
-                        "size": int(f.get("size", 0)),
-                        "modified": f.get("modified", ""),
-                    }
-                )
-            return result
+            self.client.info(remote_path)
+            return True
         except WebDavException:
-            return []
-
-    def get_remote_file_info(self, remote_path: str) -> Optional[Dict[str, Any]]:
-        """Get information about a remote file."""
-        try:
-            info = self.client.info(remote_path)
-            return {
-                "size": int(info.get("size", 0)),
-                "modified": info.get("modified", ""),
-            }
-        except WebDavException:
-            return None
+            return False
 
     def delete_remote_file(self, remote_path: str) -> bool:
         """Delete a remote file."""
@@ -113,15 +104,3 @@ class WebDAVClient:
             return True
         except WebDavException:
             return False
-
-    def get_local_path_for_remote(self, remote_path: str) -> Path:
-        """Convert remote path to corresponding local path."""
-        rel_path = remote_path.replace(self.REMOTE_BASE_PATH, "").lstrip("/")
-        home = Path.home()
-        return home / rel_path
-
-    def get_remote_path_for_local(self, local_path: Path) -> str:
-        """Convert local path to corresponding remote path."""
-        home = str(Path.home())
-        rel_path = str(local_path).replace(home, "").lstrip("/")
-        return f"{self.REMOTE_BASE_PATH}/{rel_path}"

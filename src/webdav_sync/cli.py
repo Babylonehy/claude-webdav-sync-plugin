@@ -3,7 +3,7 @@
 import sys
 import click
 
-from .config import WebDAVConfig
+from .config import WebDAVConfig, PROVIDER_JIANGUOYUN, PROVIDER_GENERIC, JIANGUOYUN_WEBDAV_URL
 from .sync_manager import SyncManager
 
 
@@ -20,6 +20,12 @@ def cli():
 @click.option(
     "--password", help="WebDAV password (prompted if not provided)", default=None
 )
+@click.option(
+    "--preset",
+    type=click.Choice(["jianguoyun", "generic"], case_sensitive=False),
+    default=None,
+    help="Use a provider preset (e.g. jianguoyun for 坚果云)",
+)
 @click.option("--auto-sync", is_flag=True, help="Enable automatic sync")
 @click.option("--sync-on-startup", is_flag=True, help="Sync on Claude Code startup")
 @click.option("--sync-on-shutdown", is_flag=True, help="Sync on Claude Code shutdown")
@@ -27,22 +33,36 @@ def configure(
     url: str,
     username: str,
     password: str,
+    preset: str,
     auto_sync: bool,
     sync_on_startup: bool,
     sync_on_shutdown: bool,
 ):
     """Configure WebDAV connection settings."""
+    provider = PROVIDER_GENERIC
+
+    if preset == "jianguoyun":
+        provider = PROVIDER_JIANGUOYUN
+        click.echo("坚果云 (Jianguoyun) preset selected.")
+        click.echo(
+            "Note: Use an app-specific password, not your account password.\n"
+            "Create one at: https://www.jianguoyun.com/d/account#security\n"
+        )
+        if not url:
+            url = JIANGUOYUN_WEBDAV_URL
+
     if not url:
         url = click.prompt("WebDAV URL", type=str)
     if not username:
-        username = click.prompt("Username", type=str)
+        username = click.prompt("Username (email)", type=str)
     if password is None:
-        password = click.prompt("Password", type=str, hide_input=True)
+        password = click.prompt("Password (app-specific password)", type=str, hide_input=True)
 
     config = WebDAVConfig(
         webdav_url=url,
         username=username,
         password=password,
+        provider=provider,
         auto_sync=auto_sync,
         sync_on_startup=sync_on_startup,
         sync_on_shutdown=sync_on_shutdown,

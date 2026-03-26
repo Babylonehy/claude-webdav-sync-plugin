@@ -3,8 +3,14 @@
 import os
 from pathlib import Path
 from dataclasses import dataclass, field, asdict
-from typing import List, Optional
+from typing import List
 import yaml
+
+
+PROVIDER_JIANGUOYUN = "jianguoyun"
+PROVIDER_GENERIC = "generic"
+
+JIANGUOYUN_WEBDAV_URL = "https://dav.jianguoyun.com/dav/"
 
 
 @dataclass
@@ -14,6 +20,7 @@ class WebDAVConfig:
     webdav_url: str = ""
     username: str = ""
     password: str = ""
+    provider: str = PROVIDER_GENERIC
     auto_sync: bool = False
     sync_on_startup: bool = False
     sync_on_shutdown: bool = False

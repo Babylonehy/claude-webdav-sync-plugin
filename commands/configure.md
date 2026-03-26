@@ -15,6 +15,7 @@ python ${CLAUDE_PLUGIN_ROOT}/scripts/webdav_sync.py configure [OPTIONS]
 - `--url`: WebDAV server URL
 - `--username`: WebDAV username
 - `--password`: WebDAV password (will be prompted if not provided)
+- `--preset`: Provider preset (`jianguoyun` or `generic`)
 - `--auto-sync`: Enable automatic sync
 - `--sync-on-startup`: Sync when Claude Code starts
 - `--sync-on-shutdown`: Sync when Claude Code exits
@@ -24,6 +25,9 @@ python ${CLAUDE_PLUGIN_ROOT}/scripts/webdav_sync.py configure [OPTIONS]
 ```bash
 # Interactive configuration
 python ${CLAUDE_PLUGIN_ROOT}/scripts/webdav_sync.py configure
+
+# 坚果云 (Jianguoyun) quick setup
+python ${CLAUDE_PLUGIN_ROOT}/scripts/webdav_sync.py configure --preset jianguoyun
 
 # Non-interactive configuration
 python ${CLAUDE_PLUGIN_ROOT}/scripts/webdav_sync.py configure \

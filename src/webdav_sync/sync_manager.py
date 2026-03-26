@@ -1,8 +1,7 @@
-"""Core sync logic for WebDAV sync plugin."""
+"""Core sync logic for WebDAV sync plugin — archive-based approach."""
 
-import fnmatch
 import json
-import shutil
+import tempfile
 from pathlib import Path
 from datetime import datetime
 from typing import List, Optional, Callable
@@ -10,7 +9,17 @@ from dataclasses import dataclass, field
 
 from .config import WebDAVConfig, SyncPaths
 from .webdav_client import WebDAVClient
-from .conflict_resolver import ConflictResolver, ConflictAction
+from .archiver import (
+    build_manifest,
+    create_archive,
+    extract_archive,
+    diff_manifests,
+    manifests_equal,
+    sha256_bytes,
+    sha256_file,
+    MANIFEST_FILENAME,
+    ARCHIVE_FILENAME,
+)
 
 
 @dataclass
@@ -28,11 +37,14 @@ class SyncResult:
         return len(self.errors) == 0
 
     def __str__(self) -> str:
-        return f"SyncResult(pushed={self.pushed}, pulled={self.pulled}, skipped={self.skipped}, errors={len(self.errors)})"
+        return (
+            f"SyncResult(pushed={self.pushed}, pulled={self.pulled}, "
+            f"skipped={self.skipped}, errors={len(self.errors)})"
+        )
 
 
 class SyncManager:
-    """Manages synchronization between local and remote."""
+    """Manages synchronization between local and remote via single archive."""
 
     SYNC_STATE_FILE = (
         Path.home() / ".claude" / "plugins" / "data" / "webdav-sync" / "sync_state.json"
@@ -41,96 +53,153 @@ class SyncManager:
     def __init__(self, config: WebDAVConfig, prompt_func: Callable = None):
         self.config = config
         self.client = WebDAVClient(config)
-        self.resolver = ConflictResolver(self.client, prompt_func)
         self.paths = SyncPaths()
+        # prompt_func kept for API compatibility but not used in archive mode
+        self._prompt_func = prompt_func
+
+    # ------------------------------------------------------------------
+    # Push
+    # ------------------------------------------------------------------
 
     def push(self, force: bool = False) -> SyncResult:
-        """Push local files to WebDAV server."""
+        """Pack local files into an archive and upload to WebDAV."""
         result = SyncResult()
 
         if not self.client.test_connection():
             result.errors.append("Cannot connect to WebDAV server")
             return result
 
-        sync_paths = self.paths.get_all_sync_paths()
+        home = Path.home()
+        local_files = self._get_local_files(home)
 
-        for local_path in sync_paths:
-            if not local_path.exists():
-                continue
+        if not local_files:
+            print("No local files to sync.")
+            self._save_sync_state("push")
+            return result
 
-            if self._should_exclude(local_path):
-                result.skipped += 1
-                continue
+        # Build local manifest (no archive sha256 yet)
+        local_manifest = build_manifest(local_files, home)
 
-            remote_path = self.client.get_remote_path_for_local(local_path)
+        if not force:
+            remote_manifest = self._download_manifest()
+            if remote_manifest and manifests_equal(local_manifest, remote_manifest):
+                print("Already up to date — no changes detected.")
+                result.skipped = len(local_files)
+                self._save_sync_state("push")
+                return result
 
-            if not force:
-                conflict = self.resolver.detect_conflict(local_path, remote_path)
-                if conflict:
-                    action = self.resolver.resolve(conflict)
-                    result.conflicts += 1
-                    if action == ConflictAction.KEEP_REMOTE:
-                        result.skipped += 1
-                        continue
-                    elif action == ConflictAction.SKIP:
-                        result.skipped += 1
-                        continue
-                    elif action == ConflictAction.ABORT:
-                        result.errors.append("Sync aborted by user")
-                        return result
+        # Pack archive
+        print(f"Packing {len(local_files)} files...")
+        archive_path = create_archive(local_files, home)
+        try:
+            # Compute archive integrity hash
+            archive_sha256 = sha256_file(archive_path)
+            local_manifest["archive_sha256"] = archive_sha256
 
-            success = self.client.upload_file(local_path, remote_path)
-            if success:
-                result.pushed += 1
-            else:
-                result.errors.append(f"Failed to push {local_path}")
+            # Ensure remote base dir exists
+            if not self.client.ensure_remote_base():
+                result.errors.append("Cannot create remote base directory")
+                return result
+
+            # Upload archive
+            print(f"Uploading archive ({archive_path.stat().st_size // 1024} KB)...")
+            if not self.client.upload_file(archive_path, self.client.REMOTE_ARCHIVE):
+                result.errors.append("Failed to upload archive")
+                return result
+
+            # Upload manifest
+            manifest_bytes = json.dumps(local_manifest, indent=2, ensure_ascii=False).encode()
+            with tempfile.NamedTemporaryFile(
+                suffix=".json", delete=False, prefix="claude-manifest-"
+            ) as tmp:
+                tmp.write(manifest_bytes)
+                manifest_tmp = Path(tmp.name)
+            try:
+                if not self.client.upload_file(manifest_tmp, self.client.REMOTE_MANIFEST):
+                    result.errors.append("Failed to upload manifest")
+                    return result
+            finally:
+                manifest_tmp.unlink(missing_ok=True)
+
+            result.pushed = len(local_files)
+        finally:
+            archive_path.unlink(missing_ok=True)
 
         self._save_sync_state("push")
         return result
 
+    # ------------------------------------------------------------------
+    # Pull
+    # ------------------------------------------------------------------
+
     def pull(self, force: bool = False) -> SyncResult:
-        """Pull files from WebDAV server."""
+        """Download remote archive and extract changed files."""
         result = SyncResult()
 
         if not self.client.test_connection():
             result.errors.append("Cannot connect to WebDAV server")
             return result
 
-        remote_files = self.client.list_remote_files()
+        # Download manifest
+        remote_manifest = self._download_manifest()
+        if not remote_manifest:
+            print("No remote data found. Push from another machine first.")
+            return result
 
-        for remote_info in remote_files:
-            remote_path = remote_info["path"]
-            local_path = self.client.get_local_path_for_remote(remote_path)
+        home = Path.home()
 
-            if self._should_exclude(local_path):
-                result.skipped += 1
-                continue
+        # Determine which files need updating
+        if force:
+            # Extract everything
+            to_extract = set(remote_manifest["files"].keys())
+            result.skipped = 0
+        else:
+            changed, missing = diff_manifests(remote_manifest, home)
+            to_extract = changed | missing
+            total = len(remote_manifest["files"])
+            result.skipped = total - len(to_extract)
 
-            if not force and local_path.exists():
-                conflict = self.resolver.detect_conflict(local_path, remote_path)
-                if conflict:
-                    action = self.resolver.resolve(conflict)
-                    result.conflicts += 1
-                    if action == ConflictAction.KEEP_LOCAL:
-                        result.skipped += 1
-                        continue
-                    elif action == ConflictAction.KEEP_BOTH:
-                        self._backup_local(local_path)
-                    elif action == ConflictAction.SKIP:
-                        result.skipped += 1
-                        continue
-                    elif action == ConflictAction.ABORT:
-                        result.errors.append("Sync aborted by user")
-                        return result
+        if not to_extract:
+            print("Already up to date — no changes detected.")
+            self._save_sync_state("pull")
+            return result
 
-            success = self.client.download_file(remote_path, local_path)
-            if success:
-                result.pulled += 1
-            else:
-                result.errors.append(f"Failed to pull {remote_path}")
+        print(f"Downloading archive ({len(to_extract)} files to update)...")
+
+        # Download archive to temp file
+        with tempfile.NamedTemporaryFile(
+            suffix=".tar.gz", delete=False, prefix="claude-sync-dl-"
+        ) as tmp:
+            archive_path = Path(tmp.name)
+
+        try:
+            if not self.client.download_file(self.client.REMOTE_ARCHIVE, archive_path):
+                result.errors.append("Failed to download archive")
+                return result
+
+            # Verify archive integrity
+            expected_sha256 = remote_manifest.get("archive_sha256", "")
+            if expected_sha256:
+                actual_sha256 = sha256_file(archive_path)
+                if actual_sha256 != expected_sha256:
+                    result.errors.append(
+                        f"Archive integrity check failed: "
+                        f"expected {expected_sha256[:12]}… got {actual_sha256[:12]}…"
+                    )
+                    return result
+
+            # Extract only changed/missing files
+            extracted = extract_archive(archive_path, home, only_these=to_extract)
+            result.pulled = len(extracted)
+        finally:
+            archive_path.unlink(missing_ok=True)
 
         self._save_sync_state("pull")
         return result
+
+    # ------------------------------------------------------------------
+    # Status
+    # ------------------------------------------------------------------
 
     def status(self) -> dict:
         """Get current sync status."""
@@ -139,28 +208,41 @@ class SyncManager:
             "last_sync": state.get("last_sync"),
             "last_action": state.get("last_action"),
             "configured": self.config.is_configured(),
-            "connected": self.client.test_connection()
-            if self.config.is_configured()
-            else False,
+            "connected": (
+                self.client.test_connection() if self.config.is_configured() else False
+            ),
         }
 
-    def _should_exclude(self, path: Path) -> bool:
-        """Check if path should be excluded from sync."""
-        path_str = str(path)
-        for pattern in self.config.exclude_patterns:
-            if fnmatch.fnmatch(path_str, pattern) or pattern in path_str:
-                return True
-        return False
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
 
-    def _backup_local(self, local_path: Path) -> None:
-        """Create backup of local file."""
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        backup_path = local_path.with_suffix(f".{timestamp}.bak")
-        shutil.copy2(local_path, backup_path)
-        print(f"Backup created: {backup_path}")
+    def _get_local_files(self, home: Optional[Path] = None) -> List[Path]:
+        """Return local files to sync that are under home."""
+        if home is None:
+            home = Path.home()
+        return [
+            p for p in self.paths.get_all_sync_paths()
+            if p.exists() and p.is_relative_to(home)
+        ]
+
+    def _download_manifest(self) -> Optional[dict]:
+        """Download and parse the remote manifest. Returns None if not found."""
+        with tempfile.NamedTemporaryFile(
+            suffix=".json", delete=False, prefix="claude-manifest-dl-"
+        ) as tmp:
+            manifest_path = Path(tmp.name)
+        try:
+            if not self.client.download_file(self.client.REMOTE_MANIFEST, manifest_path):
+                return None
+            with open(manifest_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except (json.JSONDecodeError, OSError):
+            return None
+        finally:
+            manifest_path.unlink(missing_ok=True)
 
     def _save_sync_state(self, action: str) -> None:
-        """Save sync state to file."""
         self.SYNC_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
         state = {
             "last_sync": datetime.now().isoformat(),
@@ -170,7 +252,6 @@ class SyncManager:
             json.dump(state, f)
 
     def _load_sync_state(self) -> dict:
-        """Load sync state from file."""
         if self.SYNC_STATE_FILE.exists():
             with open(self.SYNC_STATE_FILE, "r") as f:
                 return json.load(f)
