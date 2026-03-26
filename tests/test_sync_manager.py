@@ -149,7 +149,7 @@ class TestSyncManager:
 
     def test_should_exclude(self, manager):
         """Test exclude pattern matching."""
-        manager.config.exclude_patterns = ["telemetry/*", "debug/*"]
+        manager.config.exclude_patterns = ["*telemetry/*", "*debug/*"]
 
         assert (
             manager._should_exclude(Path("/home/.claude/telemetry/file.json")) is True
