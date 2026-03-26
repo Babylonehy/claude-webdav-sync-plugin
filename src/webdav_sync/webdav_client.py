@@ -1,5 +1,6 @@
 """WebDAV client wrapper for sync operations."""
 
+import logging
 import os
 from pathlib import Path
 from typing import Optional, List, Dict, Any
@@ -7,6 +8,8 @@ from webdav3.client import Client
 from webdav3.exceptions import WebDavException
 
 from .config import WebDAVConfig
+
+logger = logging.getLogger(__name__)
 
 
 class WebDAVClient:
@@ -34,7 +37,7 @@ class WebDAVClient:
         """Test if connection to WebDAV server works."""
         try:
             return self.client.check()
-        except (WebDavException, Exception):
+        except WebDavException:
             return False
 
     def ensure_remote_dir(self, path: str) -> bool:
@@ -54,7 +57,7 @@ class WebDAVClient:
             self.client.upload_sync(remote_path=remote_path, local_path=str(local_path))
             return True
         except WebDavException as e:
-            print(f"Error uploading {local_path}: {e}")
+            logger.error(f"Error uploading {local_path}: {e}")
             return False
 
     def download_file(self, remote_path: str, local_path: Path) -> bool:
@@ -66,10 +69,10 @@ class WebDAVClient:
             )
             return True
         except WebDavException as e:
-            print(f"Error downloading {remote_path}: {e}")
+            logger.error(f"Error downloading {remote_path}: {e}")
             return False
 
-    def list_remote_files(self, path: str = None) -> List[Dict[str, Any]]:
+    def list_remote_files(self, path: Optional[str] = None) -> List[Dict[str, Any]]:
         """List all files in remote directory recursively."""
         if path is None:
             path = self.REMOTE_BASE_PATH
