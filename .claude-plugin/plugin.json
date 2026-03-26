@@ -4,9 +4,9 @@
   "description": "Synchronize Claude Code user configuration and history across machines via WebDAV",
   "author": {
     "name": "WebDAV Sync Contributors",
-    "url": "https://github.com/yourusername/claude-webdav-sync-plugin"
+    "url": "https://github.com/Babylonehy/claude-webdav-sync-plugin"
   },
-  "repository": "https://github.com/yourusername/claude-webdav-sync-plugin",
+  "repository": "https://github.com/Babylonehy/claude-webdav-sync-plugin",
   "license": "MIT",
   "keywords": ["sync", "backup", "webdav", "configuration", "multi-machine"]
 }
