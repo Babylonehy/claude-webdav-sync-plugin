@@ -12,11 +12,18 @@ Synchronize your Claude Code configuration and history across multiple machines 
 
 ## Installation
 
-### Method 1: Install as Claude Code Plugin (Recommended)
+### Method 1: Install from GitHub (Recommended)
+
+```bash
+# In Claude Code, run:
+claude /plugins install Babylonehy/claude-webdav-sync-plugin
+```
+
+### Method 2: Local Installation
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/claude-webdav-sync-plugin.git
+git clone https://github.com/Babylonehy/claude-webdav-sync-plugin.git
 cd claude-webdav-sync-plugin
 
 # Run the install script
@@ -29,17 +36,10 @@ This will:
 2. Register the plugin in Claude Code's plugin system
 3. Install Python dependencies
 
-### Method 2: Install from GitHub (if published)
-
-```bash
-# In Claude Code, run:
-claude /plugins install yourusername/claude-webdav-sync-plugin
-```
-
 ### Method 3: Manual Installation
 
 ```bash
-git clone https://github.com/yourusername/claude-webdav-sync-plugin.git
+git clone https://github.com/Babylonehy/claude-webdav-sync-plugin.git
 cd claude-webdav-sync-plugin
 pip install webdavclient3 pyyaml click python-dateutil
 ```
