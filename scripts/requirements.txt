@@ -1,0 +1,4 @@
+webdavclient3>=3.14
+pyyaml>=6.0
+click>=8.0
+python-dateutil>=2.8
