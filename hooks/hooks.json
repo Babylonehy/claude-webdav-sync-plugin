@@ -1,0 +1,28 @@
+{
+  "description": "WebDAV Sync hooks for auto-sync on startup/shutdown",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python ${CLAUDE_PLUGIN_ROOT}/scripts/webdav_sync.py sync-startup",
+            "async": false
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python ${CLAUDE_PLUGIN_ROOT}/scripts/webdav_sync.py sync-shutdown",
+            "async": false
+          }
+        ]
+      }
+    ]
+  }
+}
