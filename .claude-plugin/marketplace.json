@@ -1,0 +1,18 @@
+{
+  "name": "webdav-sync-marketplace",
+  "description": "WebDAV Sync Plugin Marketplace",
+  "owner": {
+    "name": "WebDAV Sync Contributors"
+  },
+  "plugins": [
+    {
+      "name": "webdav-sync",
+      "description": "Synchronize Claude Code user configuration and history across machines via WebDAV",
+      "version": "1.0.0",
+      "source": "./",
+      "author": {
+        "name": "WebDAV Sync Contributors"
+      }
+    }
+  ]
+}
