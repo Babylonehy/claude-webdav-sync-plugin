@@ -12,37 +12,69 @@ Synchronize your Claude Code configuration and history across multiple machines 
 
 ## Installation
 
-### From Source
+### Method 1: Install as Claude Code Plugin (Recommended)
+
+```bash
+# Clone the repository
+git clone https://github.com/yourusername/claude-webdav-sync-plugin.git
+cd claude-webdav-sync-plugin
+
+# Run the install script
+chmod +x scripts/install.sh
+./scripts/install.sh
+```
+
+This will:
+1. Copy plugin files to `~/.claude/plugins/cache/webdav-sync-marketplace/`
+2. Register the plugin in Claude Code's plugin system
+3. Install Python dependencies
+
+### Method 2: Install from GitHub (if published)
+
+```bash
+# In Claude Code, run:
+claude /plugins install yourusername/claude-webdav-sync-plugin
+```
+
+### Method 3: Manual Installation
 
 ```bash
 git clone https://github.com/yourusername/claude-webdav-sync-plugin.git
 cd claude-webdav-sync-plugin
-pip install -e ".[dev]"
-```
-
-### For Claude Code
-
-1. Clone the repository
-2. Run the install script:
-```bash
-./scripts/install.sh
+pip install webdavclient3 pyyaml click python-dateutil
 ```
 
 ## Configuration
 
-```bash
-# Interactive configuration
-webdav-sync configure
+After installation, configure the WebDAV connection:
 
-# Or with options
-webdav-sync configure \
-  --url https://your-webdav-server.com/dav \
-  --username your-username \
-  --sync-on-startup \
-  --sync-on-shutdown
+```bash
+# Using installed plugin
+python3 ~/.claude/plugins/cache/webdav-sync-marketplace/webdav-sync/1.0.0/scripts/webdav_sync.py configure
+
+# Or if installed manually
+python3 scripts/webdav_sync.py configure
 ```
 
+Interactive configuration will prompt for:
+- WebDAV server URL
+- Username
+- Password
+- Auto-sync options
+
 ## Usage
+
+After installation, use the plugin:
+
+```bash
+# Set alias for convenience (add to ~/.bashrc or ~/.zshrc)
+alias webdav-sync='python3 ~/.claude/plugins/cache/webdav-sync-marketplace/webdav-sync/1.0.0/scripts/webdav_sync.py'
+
+# Then use:
+webdav-sync status
+webdav-sync push
+webdav-sync pull
+```
 
 ### Manual Sync
 
@@ -140,3 +172,21 @@ pytest tests/ -v --cov=src/webdav_sync --cov-report=html
 ## License
 
 MIT License - see [LICENSE](LICENSE) for details.
+
+## Uninstallation
+
+```bash
+# Remove plugin files
+rm -rf ~/.claude/plugins/cache/webdav-sync-marketplace
+rm -rf ~/.claude/plugins/marketplaces/webdav-sync-marketplace
+rm -rf ~/.claude/plugins/data/webdav-sync
+
+# Remove from installed_plugins.json (edit manually or run):
+python3 -c "
+import json
+f = '$HOME/.claude/plugins/installed_plugins.json'
+with open(f) as fp: d = json.load(fp)
+d['plugins'].pop('webdav-sync@webdav-sync-marketplace', None)
+with open(f, 'w') as fp: json.dump(d, fp, indent=2)
+"
+```
