@@ -4,12 +4,20 @@
   "owner": {
     "name": "WebDAV Sync Contributors"
   },
+  "source": {
+    "source": "github",
+    "repo": "Babylonehy/claude-webdav-sync-plugin"
+  },
   "plugins": [
     {
       "name": "webdav-sync",
       "description": "Synchronize Claude Code user configuration and history across machines via WebDAV",
       "version": "1.0.0",
-      "source": "./",
+      "source": {
+        "source": "git-subdir",
+        "repo": "Babylonehy/claude-webdav-sync-plugin",
+        "subdir": "."
+      },
       "author": {
         "name": "WebDAV Sync Contributors"
       }
